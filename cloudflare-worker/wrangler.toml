@@ -1,0 +1,14 @@
+name = "cidle-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Your Cloudflare account ID (get from dashboard)
+# account_id = "your-account-id-here"
+
+# Optional: Custom domain routing
+# routes = [
+#   { pattern = "api.yangqizhe.com/*", zone_name = "yangqizhe.com" }
+# ]
+
+# The OPENAI_API_KEY should be added as a secret, not here!
+# Run: npx wrangler secret put OPENAI_API_KEY

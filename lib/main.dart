@@ -1,7 +1,19 @@
 import 'package:flutter/material.dart';
 import 'game_screen.dart';
+import 'dictionary_service.dart';
 
 void main() {
+  // Configure the proxy URL for secure API access
+  // Replace with your deployed Cloudflare Worker URL
+  const proxyUrl = String.fromEnvironment(
+    'PROXY_URL',
+    defaultValue: '', // Empty = use fallback (no AI features)
+  );
+
+  if (proxyUrl.isNotEmpty) {
+    DictionaryService().setProxyUrl(proxyUrl);
+  }
+
   runApp(const MainApp());
 }
 

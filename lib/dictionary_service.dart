@@ -24,62 +24,40 @@ class DictionaryService {
   factory DictionaryService() => _instance;
   DictionaryService._internal();
 
-  // OpenAI API key for pinyin lookup - replace with your key
-  String? _openAiApiKey = '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';
+  // Proxy URL for secure API calls (Cloudflare Worker)
+  // Set this to your deployed worker URL, e.g., 'https://cidle-api.your-subdomain.workers.dev'
+  String? _proxyUrl;
+
+  // Configure the proxy URL for secure API access
+  void setProxyUrl(String url) {
+    _proxyUrl = url;
+  }
+
+  bool get hasProxy => _proxyUrl != null && _proxyUrl!.isNotEmpty;
 
   // Track used words to avoid repetition
   final Set<String> _usedWords = {};
-
-  // Set the OpenAI API key
-  void setOpenAiApiKey(String key) {
-    _openAiApiKey = key;
-  }
 
   // Reset used words (call when starting fresh)
   void resetUsedWords() {
     _usedWords.clear();
   }
 
-  bool get hasApiKey => _openAiApiKey != null && _openAiApiKey!.isNotEmpty;
+  // Legacy API key support removed - use proxy instead
+  bool get hasApiKey => hasProxy;
 
-  /// Lookup pinyin using OpenAI API
+  /// Lookup pinyin using proxy API
   Future<List<String>?> _lookupPinyinFromOpenAI(String characters) async {
-    if (!hasApiKey) return null;
+    if (!hasProxy) return null;
 
     try {
       final response = await http.post(
-        Uri.parse('https://api.openai.com/v1/chat/completions'),
+        Uri.parse('$_proxyUrl/pinyin'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_openAiApiKey',
         },
         body: json.encode({
-          'model': 'gpt-3.5-turbo',
-          'messages': [
-            {
-              'role': 'system',
-              'content':
-                  '''You are a Chinese pinyin expert. For each Chinese character, return its pinyin.
-Rules:
-- Return ONLY pinyin syllables separated by single spaces
-- Use uppercase letters only (A-Z)
-- No tone marks, no numbers, no punctuation, no quotes
-- One syllable per character
-- Use V for ü (e.g., 女 = NV, 绿 = LV)
-
-Examples:
-你好 → NI HAO
-电脑 → DIAN NAO
-学习 → XUE XI
-旅游 → LV YOU'''
-            },
-            {
-              'role': 'user',
-              'content': characters
-            }
-          ],
-          'max_tokens': 50,
-          'temperature': 0,
+          'characters': characters,
         }),
       ).timeout(const Duration(seconds: 10));
 
@@ -970,49 +948,31 @@ Examples:
     return [2, 4];
   }
 
-  /// Fetch a random Chinese word from OpenAI
+  /// Fetch a random Chinese word from proxy API
   Future<ChineseWord?> fetchRandomWord({int length = 2}) async {
-    if (!hasApiKey) {
-      // Fallback to hardcoded list if no API key
+    if (!hasProxy) {
+      // Fallback to hardcoded list if no proxy configured
       return getRandomWord(length: length);
     }
 
     // Build exclusion list from recently used words
-    final recentWords = _usedWords.take(20).join('、');
+    final recentWords = _usedWords.take(20).toList();
 
     try {
-      final wordType = length == 4 ? '成语(4字成语)' : '常用词语($length个字)';
-      final excludePrompt = recentWords.isNotEmpty
-          ? '不要使用这些词：$recentWords。'
-          : '';
-
       final response = await http.post(
-        Uri.parse('https://api.openai.com/v1/chat/completions'),
+        Uri.parse('$_proxyUrl/random-word'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_openAiApiKey',
         },
         body: json.encode({
-          'model': 'gpt-3.5-turbo',
-          'messages': [
-            {
-              'role': 'system',
-              'content':
-                  '你是中文词汇专家。请生成一个随机的、常用的中文$wordType。$excludePrompt只返回汉字，不要拼音或解释。选择有趣且多样化的词汇。'
-            },
-            {
-              'role': 'user',
-              'content': '给我一个随机的中文$wordType，只要汉字。'
-            }
-          ],
-          'max_tokens': 20,
-          'temperature': 1.2,
+          'length': length,
+          'exclude': recentWords,
         }),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final content = data['choices']?[0]?['message']?['content'] as String?;
+        final content = data['word'] as String?;
         if (content != null) {
           // Clean up the response - only keep Chinese characters
           final chineseOnly = content.replaceAll(RegExp(r'[^\u4e00-\u9fff]'), '');
@@ -1044,7 +1004,7 @@ Examples:
   /// Get all progressive hints for a word at once
   /// Returns a list of 3 hints from vague to specific
   Future<List<String>?> getAllHints(String characters, {bool isIdiom = false}) async {
-    if (!hasApiKey) return null;
+    if (!hasProxy) return null;
 
     // Check cache first
     if (_hintsCache.containsKey(characters)) {
@@ -1052,89 +1012,24 @@ Examples:
     }
 
     try {
-      final systemPrompt = isIdiom
-          ? '''你是一个成语猜谜游戏的提示生成器。为给定成语生成3个递进式提示，帮助玩家逐步猜出答案。
-
-提示要求（必须按顺序，逐渐具体）:
-
-第一个提示 - 基础分类:
-- 说明成语的感情色彩（褒义/贬义/中性）
-- 或说明成语的用法（形容人/形容事/形容物）
-- 例如："这是一个褒义成语，常用来赞美人"
-
-第二个提示 - 来源背景:
-- 说明成语的出处类型（历史典故/寓言故事/神话传说/古代战争/文学作品）
-- 如果有具体出处，可以提及书名或时代
-- 例如："来自战国时期的一个寓言故事"、"出自《庄子》"
-
-第三个提示 - 故事线索:
-- 描述成语典故中的关键情节或画面
-- 提及故事中的人物行为或场景，但不直接解释成语含义
-- 例如："故事中有人守在一棵树旁，等待某种动物"、"涉及一个人在船上刻记号"
-
-严格禁止:
-- 绝对不能使用成语中的任何一个字
-- 不能直接解释成语的现代含义
-- 不能给出成语的同义词
-
-输出格式: 每行一个提示，共3行，不要编号。每个提示10-25个中文字。'''
-          : '''你是一个词语猜谜游戏的提示生成器。为给定词语生成3个递进式提示。
-
-提示类型（必须按此顺序）:
-1. 【词性或大类】如: "这是一个名词"、"这是一个动词"、"属于自然现象"、"与情感相关"
-2. 【使用场景】如: "在学校常见"、"工作中会用到"、"购物时涉及"、"与天气相关"
-3. 【具体联想】给出一个具体但不直接的线索。如: "早晨起床后会做"、"需要用眼睛"、"与声音有关"
-
-严格禁止:
-- 不得使用词语中的任何一个字
-- 不得直接解释词语含义
-- 不得给出同义词
-- 三个提示必须从不同角度出发
-
-输出格式: 每行一个提示，共3行，不要编号。每个提示6-12个中文字。''';
-
       final response = await http.post(
-        Uri.parse('https://api.openai.com/v1/chat/completions'),
+        Uri.parse('$_proxyUrl/hints'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_openAiApiKey',
         },
         body: json.encode({
-          'model': 'gpt-3.5-turbo',
-          'messages': [
-            {
-              'role': 'system',
-              'content': systemPrompt
-            },
-            {
-              'role': 'user',
-              'content': '请为"$characters"生成3个递进式提示'
-            }
-          ],
-          'max_tokens': isIdiom ? 200 : 120,
-          'temperature': 0.7,
+          'characters': characters,
+          'isIdiom': isIdiom,
         }),
       ).timeout(const Duration(seconds: 20));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final content = data['choices']?[0]?['message']?['content'] as String?;
-        if (content != null) {
-          // Parse the 3 hints from the response
-          final lines = content.trim().split('\n')
-              .map((line) => line.trim())
-              .where((line) => line.isNotEmpty)
-              .map((line) {
-                // Remove any numbering like "1." or "1、" or "1:" or "提示1:"
-                return line.replaceAll(RegExp(r'^(提示)?[\d]+[.、:：\s]*'), '').trim();
-              })
-              .toList();
-
-          if (lines.length >= 3) {
-            final hints = lines.take(3).toList();
-            _hintsCache[characters] = hints;
-            return hints;
-          }
+        final hintsData = data['hints'];
+        if (hintsData != null && hintsData is List && hintsData.length >= 3) {
+          final hints = hintsData.take(3).map((h) => h.toString()).toList();
+          _hintsCache[characters] = hints;
+          return hints;
         }
       }
     } catch (e) {
