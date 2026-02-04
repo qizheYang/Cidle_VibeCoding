@@ -74,7 +74,8 @@ class GameState {
 
     for (int i = 0; i < targetSyllables.length; i++) {
       unmatchedTargetInitials[i] = targetSyllables[i].initial.toUpperCase();
-      unmatchedTargetFinals[i] = targetSyllables[i].finalPart.toUpperCase();
+      // Use normalizedFinal to handle ü/u equivalence after J, Q, X, Y
+      unmatchedTargetFinals[i] = targetSyllables[i].normalizedFinal;
       unmatchedTargetChars[i] = targetWord.characters[i];
     }
 
@@ -85,10 +86,11 @@ class GameState {
     // First pass: find exact matches (green)
     for (int i = 0; i < guessSyllables.length; i++) {
       final guessInitial = guessSyllables[i].initial.toUpperCase();
-      final guessFinal = guessSyllables[i].finalPart.toUpperCase();
+      // Use normalizedFinal to handle ü/u equivalence after J, Q, X, Y
+      final guessFinal = guessSyllables[i].normalizedFinal;
       final guessChar = guess.characters[i];
       final targetInitial = targetSyllables[i].initial.toUpperCase();
-      final targetFinal = targetSyllables[i].finalPart.toUpperCase();
+      final targetFinal = targetSyllables[i].normalizedFinal;
       final targetChar = targetWord.characters[i];
 
       // Check character - only green if BOTH character AND pinyin match
@@ -115,7 +117,8 @@ class GameState {
     // Second pass: find present matches (yellow)
     for (int i = 0; i < guessSyllables.length; i++) {
       final guessInitial = guessSyllables[i].initial.toUpperCase();
-      final guessFinal = guessSyllables[i].finalPart.toUpperCase();
+      // Use normalizedFinal to handle ü/u equivalence after J, Q, X, Y
+      final guessFinal = guessSyllables[i].normalizedFinal;
       final guessChar = guess.characters[i];
 
       // Check character if not already exact match

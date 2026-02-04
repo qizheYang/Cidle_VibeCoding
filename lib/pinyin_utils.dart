@@ -4,6 +4,22 @@ class PinyinSyllable {
 
   const PinyinSyllable(this.initial, this.finalPart);
 
+  /// Get the normalized final part for comparison purposes
+  /// After J, Q, X, Y initials, U is always ü, so normalize U to V
+  /// This ensures consistent matching regardless of API output format
+  String get normalizedFinal {
+    String result = finalPart.toUpperCase();
+    final upperInitial = initial.toUpperCase();
+
+    // After J, Q, X, Y: U is always ü (normalize to V for comparison)
+    if (['Y', 'J', 'Q', 'X'].contains(upperInitial)) {
+      // U, UE, UN, UAN after these initials should use V
+      result = result.replaceAll('U', 'V');
+    }
+
+    return result;
+  }
+
   /// Get the display version of the final part with proper ü character
   /// - V becomes Ü (e.g., LV -> LÜ, NV -> NÜ)
   /// - Y + U final displays U as Ü (e.g., YU -> YÜ)
