@@ -1,0 +1,36 @@
+name: Build and Deploy to rehydratedwater.com
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout game repo
+        uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+      - name: Get dependencies
+        run: flutter pub get
+      - name: Build web
+        run: flutter build web --base-href "/game/cidle/" --release
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          repository: qizheYang/rehydratedwater.com
+          token: ${{ secrets.DEPLOY_TOKEN }}
+          path: target-repo
+      - name: Deploy to target repo
+        run: |
+          rm -rf target-repo/game/cidle
+          cp -r build/web target-repo/game/cidle
+          cd target-repo
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add game/cidle
+          git commit -m "Auto-deploy cidle from Cidle_VibeCoding" || echo "No changes to commit"
+          git push
