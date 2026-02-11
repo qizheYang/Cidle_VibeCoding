@@ -1,4 +1,4 @@
-name: Build and Deploy to rehydratedwater.com
+name: Build and Deploy Cidle to both sites
 on:
   push:
     branches: [main]
@@ -9,26 +9,51 @@ jobs:
     steps:
       - name: Checkout game repo
         uses: actions/checkout@v4
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
+
       - name: Get dependencies
         run: flutter pub get
+
       - name: Build web
         run: flutter build web --base-href "/game/cidle/" --dart-define=PROXY_URL=https://cidle-api.cidle-api.workers.dev --release
-      - name: Checkout target repo
+
+      # Deploy to rehydratedwater.com
+      - name: Checkout rehydratedwater.com
         uses: actions/checkout@v4
         with:
           repository: qizheYang/rehydratedwater.com
           token: ${{ secrets.REHYDRATEDWATERCOM }}
-          path: target-repo
-      - name: Deploy to target repo
+          path: target-rehydrated
+
+      - name: Deploy to rehydratedwater.com
         run: |
-          rm -rf target-repo/game/cidle
-          cp -r build/web target-repo/game/cidle
-          cd target-repo
+          rm -rf target-rehydrated/game/cidle
+          cp -r build/web target-rehydrated/game/cidle
+          cd target-rehydrated
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add game/cidle
+          git commit -m "Auto-deploy cidle from Cidle_VibeCoding" || echo "No changes to commit"
+          git push
+
+      # Deploy to qizheYang.github.io (yangqizhe.com)
+      - name: Checkout qizheYang.github.io
+        uses: actions/checkout@v4
+        with:
+          repository: qizheYang/qizheYang.github.io
+          token: ${{ secrets.REHYDRATEDWATERCOM }}
+          path: target-ghpages
+
+      - name: Deploy to qizheYang.github.io
+        run: |
+          rm -rf target-ghpages/game/cidle
+          cp -r build/web target-ghpages/game/cidle
+          cd target-ghpages
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add game/cidle

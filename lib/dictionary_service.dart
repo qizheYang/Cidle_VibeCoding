@@ -25,12 +25,11 @@ class DictionaryService {
   DictionaryService._internal();
 
   // Proxy URL for secure API calls (Cloudflare Worker)
-  // Set this to your deployed worker URL, e.g., 'https://cidle-api.your-subdomain.workers.dev'
   String? _proxyUrl;
 
-  // Configure the proxy URL for secure API access
   void setProxyUrl(String url) {
     _proxyUrl = url;
+    print('[DictionaryService] Proxy URL set to: $_proxyUrl');
   }
 
   bool get hasProxy => _proxyUrl != null && _proxyUrl!.isNotEmpty;
@@ -38,21 +37,25 @@ class DictionaryService {
   // Track used words to avoid repetition
   final Set<String> _usedWords = {};
 
-  // Reset used words (call when starting fresh)
   void resetUsedWords() {
     _usedWords.clear();
   }
 
-  // Legacy API key support removed - use proxy instead
   bool get hasApiKey => hasProxy;
 
-  /// Lookup pinyin using proxy API
-  Future<List<String>?> _lookupPinyinFromOpenAI(String characters) async {
-    if (!hasProxy) return null;
+  /// Lookup pinyin using Cloudflare Worker proxy → OpenAI
+  Future<List<String>?> _lookupPinyinFromProxy(String characters) async {
+    if (!hasProxy) {
+      print('[DictionaryService] No proxy configured, skipping proxy lookup');
+      return null;
+    }
 
     try {
+      final url = '$_proxyUrl/pinyin';
+      print('[DictionaryService] Calling proxy: $url for "$characters"');
+
       final response = await http.post(
-        Uri.parse('$_proxyUrl/pinyin'),
+        Uri.parse(url),
         headers: {
           'Content-Type': 'application/json',
         },
@@ -61,11 +64,14 @@ class DictionaryService {
         }),
       ).timeout(const Duration(seconds: 10));
 
+      print('[DictionaryService] Proxy response status: ${response.statusCode}');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final content = data['choices']?[0]?['message']?['content'] as String?;
+        print('[DictionaryService] Proxy response content: $content');
+
         if (content != null) {
-          // Clean the response: remove anything that's not a letter or space
           final cleaned = content
               .toUpperCase()
               .replaceAll(RegExp(r'[^A-Z\s]'), '')
@@ -79,31 +85,23 @@ class DictionaryService {
               .cast<String>()
               .toList();
 
+          print('[DictionaryService] Parsed syllables: $syllables (expected ${characters.length})');
+
           if (syllables.length == characters.length) {
             return syllables;
           }
         }
       }
     } catch (e) {
-      // OpenAI API call failed, will fall back to other methods
+      print('[DictionaryService] Proxy call failed: $e');
     }
     return null;
   }
 
-  /// Validate that a string is valid pinyin and normalize it
   String? _validateAndNormalizePinyin(String pinyin) {
     final upper = pinyin.toUpperCase().trim();
-
-    // Must only contain A-Z
-    if (!RegExp(r'^[A-Z]+$').hasMatch(upper)) {
-      return null;
-    }
-
-    // Must be reasonable length (1-6 characters for pinyin)
-    if (upper.isEmpty || upper.length > 6) {
-      return null;
-    }
-
+    if (!RegExp(r'^[A-Z]+$').hasMatch(upper)) return null;
+    if (upper.isEmpty || upper.length > 6) return null;
     return upper;
   }
 
@@ -273,7 +271,6 @@ class DictionaryService {
     '留': 'LIU', '攻': 'GONG', '救': 'JIU', '伤': 'SHANG', '唱': 'CHANG',
     '跳': 'TIAO', '静': 'JING', '富': 'FU', '贱': 'JIAN', '瘦': 'SHOU',
     '青': 'QING', '示': 'SHI', '释': 'SHI', '权': 'QUAN', '字': 'ZI',
-    // Additional unique characters
     '年': 'NIAN', '学': 'XUE', '生': 'SHENG', '工': 'GONG', '活': 'HUO',
     '经': 'JING', '济': 'JI', '社': 'SHE', '科': 'KE', '术': 'SHU',
     '政': 'ZHENG', '界': 'JIE', '家': 'JIA', '市': 'SHI', '场': 'CHANG',
@@ -335,7 +332,6 @@ class DictionaryService {
 
   // 2-character words - expanded list
   static final List<ChineseWord> _twoCharWords = [
-    // Common words
     ChineseWord('学习', ['XUE', 'XI']),
     ChineseWord('工作', ['GONG', 'ZUO']),
     ChineseWord('生活', ['SHENG', 'HUO']),
@@ -392,7 +388,6 @@ class DictionaryService {
     ChineseWord('长度', ['CHANG', 'DU']),
     ChineseWord('重要', ['ZHONG', 'YAO']),
     ChineseWord('重复', ['CHONG', 'FU']),
-    // Nature
     ChineseWord('太阳', ['TAI', 'YANG']),
     ChineseWord('月亮', ['YUE', 'LIANG']),
     ChineseWord('星星', ['XING', 'XING']),
@@ -408,7 +403,6 @@ class DictionaryService {
     ChineseWord('闪电', ['SHAN', 'DIAN']),
     ChineseWord('彩虹', ['CAI', 'HONG']),
     ChineseWord('云彩', ['YUN', 'CAI']),
-    // Animals
     ChineseWord('老虎', ['LAO', 'HU']),
     ChineseWord('狮子', ['SHI', 'ZI']),
     ChineseWord('大象', ['DA', 'XIANG']),
@@ -424,7 +418,6 @@ class DictionaryService {
     ChineseWord('蚂蚁', ['MA', 'YI']),
     ChineseWord('乌龟', ['WU', 'GUI']),
     ChineseWord('蜗牛', ['WO', 'NIU']),
-    // Food
     ChineseWord('米饭', ['MI', 'FAN']),
     ChineseWord('面条', ['MIAN', 'TIAO']),
     ChineseWord('饺子', ['JIAO', 'ZI']),
@@ -440,7 +433,6 @@ class DictionaryService {
     ChineseWord('草莓', ['CAO', 'MEI']),
     ChineseWord('橙子', ['CHENG', 'ZI']),
     ChineseWord('柠檬', ['NING', 'MENG']),
-    // Body
     ChineseWord('眼睛', ['YAN', 'JING']),
     ChineseWord('耳朵', ['ER', 'DUO']),
     ChineseWord('鼻子', ['BI', 'ZI']),
@@ -451,7 +443,6 @@ class DictionaryService {
     ChineseWord('心脏', ['XIN', 'ZANG']),
     ChineseWord('肚子', ['DU', 'ZI']),
     ChineseWord('肩膀', ['JIAN', 'BANG']),
-    // Daily life
     ChineseWord('早餐', ['ZAO', 'CAN']),
     ChineseWord('午餐', ['WU', 'CAN']),
     ChineseWord('晚餐', ['WAN', 'CAN']),
@@ -467,7 +458,6 @@ class DictionaryService {
     ChineseWord('休息', ['XIU', 'XI']),
     ChineseWord('聊天', ['LIAO', 'TIAN']),
     ChineseWord('购物', ['GOU', 'WU']),
-    // Emotions
     ChineseWord('开心', ['KAI', 'XIN']),
     ChineseWord('难过', ['NAN', 'GUO']),
     ChineseWord('生气', ['SHENG', 'QI']),
@@ -478,7 +468,6 @@ class DictionaryService {
     ChineseWord('着急', ['ZHAO', 'JI']),
     ChineseWord('担心', ['DAN', 'XIN']),
     ChineseWord('放松', ['FANG', 'SONG']),
-    // Places
     ChineseWord('学校', ['XUE', 'XIAO']),
     ChineseWord('医院', ['YI', 'YUAN']),
     ChineseWord('公园', ['GONG', 'YUAN']),
@@ -491,7 +480,6 @@ class DictionaryService {
     ChineseWord('博物', ['BO', 'WU']),
     ChineseWord('电影', ['DIAN', 'YING']),
     ChineseWord('体育', ['TI', 'YU']),
-    // Colors
     ChineseWord('红色', ['HONG', 'SE']),
     ChineseWord('蓝色', ['LAN', 'SE']),
     ChineseWord('绿色', ['LV', 'SE']),
@@ -502,7 +490,6 @@ class DictionaryService {
     ChineseWord('粉色', ['FEN', 'SE']),
     ChineseWord('橙色', ['CHENG', 'SE']),
     ChineseWord('灰色', ['HUI', 'SE']),
-    // Family
     ChineseWord('爸爸', ['BA', 'BA']),
     ChineseWord('妈妈', ['MA', 'MA']),
     ChineseWord('爷爷', ['YE', 'YE']),
@@ -513,7 +500,6 @@ class DictionaryService {
     ChineseWord('妹妹', ['MEI', 'MEI']),
     ChineseWord('叔叔', ['SHU', 'SHU']),
     ChineseWord('阿姨', ['A', 'YI']),
-    // Objects
     ChineseWord('桌子', ['ZHUO', 'ZI']),
     ChineseWord('椅子', ['YI', 'ZI']),
     ChineseWord('窗户', ['CHUANG', 'HU']),
@@ -529,7 +515,6 @@ class DictionaryService {
     ChineseWord('尺子', ['CHI', 'ZI']),
     ChineseWord('剪刀', ['JIAN', 'DAO']),
     ChineseWord('胶水', ['JIAO', 'SHUI']),
-    // Actions
     ChineseWord('看书', ['KAN', 'SHU']),
     ChineseWord('写字', ['XIE', 'ZI']),
     ChineseWord('画画', ['HUA', 'HUA']),
@@ -545,7 +530,6 @@ class DictionaryService {
     ChineseWord('扫地', ['SAO', 'DI']),
     ChineseWord('拖地', ['TUO', 'DI']),
     ChineseWord('浇花', ['JIAO', 'HUA']),
-    // Weather
     ChineseWord('晴天', ['QING', 'TIAN']),
     ChineseWord('阴天', ['YIN', 'TIAN']),
     ChineseWord('下雨', ['XIA', 'YU']),
@@ -556,7 +540,6 @@ class DictionaryService {
     ChineseWord('温度', ['WEN', 'DU']),
     ChineseWord('湿度', ['SHI', 'DU']),
     ChineseWord('天气', ['TIAN', 'QI']),
-    // More common words
     ChineseWord('明天', ['MING', 'TIAN']),
     ChineseWord('昨天', ['ZUO', 'TIAN']),
     ChineseWord('今天', ['JIN', 'TIAN']),
@@ -599,7 +582,7 @@ class DictionaryService {
     ChineseWord('有趣', ['YOU', 'QU']),
   ];
 
-  // 4-character 成语 - expanded list
+  // 4-character 成语
   static final List<ChineseWord> _fourCharIdioms = [
     ChineseWord('一心一意', ['YI', 'XIN', 'YI', 'YI']),
     ChineseWord('半途而废', ['BAN', 'TU', 'ER', 'FEI']),
@@ -641,7 +624,6 @@ class DictionaryService {
     ChineseWord('掩耳盗铃', ['YAN', 'ER', 'DAO', 'LING']),
     ChineseWord('叶公好龙', ['YE', 'GONG', 'HAO', 'LONG']),
     ChineseWord('自相矛盾', ['ZI', 'XIANG', 'MAO', 'DUN']),
-    // More idioms
     ChineseWord('一马当先', ['YI', 'MA', 'DANG', 'XIAN']),
     ChineseWord('一鸣惊人', ['YI', 'MING', 'JING', 'REN']),
     ChineseWord('一石二鸟', ['YI', 'SHI', 'ER', 'NIAO']),
@@ -722,7 +704,6 @@ class DictionaryService {
     ChineseWord('鹤立鸡群', ['HE', 'LI', 'JI', 'QUN']),
   ];
 
-  // Combined word lists by length
   static List<ChineseWord> _getWordsByLength(int length) {
     switch (length) {
       case 2:
@@ -730,31 +711,25 @@ class DictionaryService {
       case 4:
         return _fourCharIdioms;
       default:
-        return _twoCharWords; // Default to 2-char words
+        return _twoCharWords;
     }
   }
 
   ChineseWord getRandomWord({int length = 2}) {
     final words = _getWordsByLength(length);
     final random = Random();
-
-    // Filter out already used words
     final availableWords = words.where((w) => !_usedWords.contains(w.characters)).toList();
-
-    // If all words used, reset and use full list
     if (availableWords.isEmpty) {
       _usedWords.clear();
       final word = words[random.nextInt(words.length)];
       _usedWords.add(word.characters);
       return word;
     }
-
     final word = availableWords[random.nextInt(availableWords.length)];
     _usedWords.add(word.characters);
     return word;
   }
 
-  /// Get all possible pinyin combinations for a character (多音字)
   List<String> getPinyinOptions(String character) {
     if (_polyphonicChars.containsKey(character)) {
       return _polyphonicChars[character]!
@@ -764,73 +739,36 @@ class DictionaryService {
     return [];
   }
 
-  /// Check if a character is 多音字
   bool isPolyphonic(String character) {
     return _polyphonicChars.containsKey(character);
   }
 
-  /// Look up pinyin for Chinese characters using online API
-  /// Returns a list of pinyin syllables (one per character)
+  /// Look up pinyin for Chinese characters
+  /// Fallback chain: Proxy (OpenAI) → built-in character map
+  /// MDBG removed — API is dead and caused routing bugs
   Future<List<String>?> lookupPinyin(String characters) async {
     // Check cache first
     if (_pinyinCache.containsKey(characters)) {
       return _pinyinCache[characters];
     }
 
-    // Try OpenAI API first if key is available
-    if (hasApiKey) {
-      final openAiResult = await _lookupPinyinFromOpenAI(characters);
-      if (openAiResult != null) {
-        _pinyinCache[characters] = openAiResult;
-        return openAiResult;
+    // Try Cloudflare Worker proxy (OpenAI) first
+    if (hasProxy) {
+      final proxyResult = await _lookupPinyinFromProxy(characters);
+      if (proxyResult != null) {
+        _pinyinCache[characters] = proxyResult;
+        return proxyResult;
       }
     }
 
-    try {
-      // Using a free Chinese-English dictionary API
-      final encodedChars = Uri.encodeComponent(characters);
-      final response = await http.get(
-        Uri.parse('https://api.mdbg.net/search/json/pinyin/$encodedChars'),
-        headers: {'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data is List && data.isNotEmpty) {
-          final pinyinList = <String>[];
-          for (var item in data) {
-            if (item is Map && item.containsKey('pinyin')) {
-              pinyinList.add(_normalizePinyin(item['pinyin']));
-            }
-          }
-          if (pinyinList.length == characters.length) {
-            _pinyinCache[characters] = pinyinList;
-            return pinyinList;
-          }
-        }
-      }
-    } catch (e) {
-      // Fall back to alternative API
-    }
-
-    // Try alternative lookup
-    try {
-      final pinyinList = await _lookupPinyinAlternative(characters);
-      if (pinyinList != null) {
-        _pinyinCache[characters] = pinyinList;
-        return pinyinList;
-      }
-    } catch (e) {
-      // Failed to lookup
-    }
-
-    // Last resort: lookup each character individually from built-in data
+    // Fallback: built-in character map
     final result = _lookupFromBuiltIn(characters);
     if (result != null) {
       _pinyinCache[characters] = result;
       return result;
     }
 
+    print('[DictionaryService] All pinyin lookups failed for "$characters"');
     return null;
   }
 
@@ -840,12 +778,10 @@ class DictionaryService {
       final char = characters[i];
       String? pinyin;
 
-      // First check single character pinyin map
       if (_singleCharPinyin.containsKey(char)) {
         pinyin = _singleCharPinyin[char];
       }
 
-      // Search in all word lists
       if (pinyin == null) {
         for (var word in [..._twoCharWords, ..._fourCharIdioms]) {
           final idx = word.characters.indexOf(char);
@@ -856,7 +792,6 @@ class DictionaryService {
         }
       }
 
-      // Check 多音字 list (use first pronunciation as default)
       if (pinyin == null && _polyphonicChars.containsKey(char)) {
         pinyin = _normalizePinyin(_polyphonicChars[char]!.first);
       }
@@ -867,32 +802,6 @@ class DictionaryService {
     return result;
   }
 
-  Future<List<String>?> _lookupPinyinAlternative(String characters) async {
-    try {
-      final response = await http.get(
-        Uri.parse(
-            'https://www.mdbg.net/chinese/dictionary?wdqb=${Uri.encodeComponent(characters)}'),
-      ).timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200) {
-        final body = response.body;
-        final pinyinMatch =
-            RegExp(r'class="pinyin"[^>]*>([^<]+)<').firstMatch(body);
-        if (pinyinMatch != null) {
-          final pinyinStr = pinyinMatch.group(1)!;
-          final syllables = pinyinStr.trim().split(RegExp(r'\s+'));
-          if (syllables.length == characters.length) {
-            return syllables.map((s) => _normalizePinyin(s)).toList();
-          }
-        }
-      }
-    } catch (e) {
-      // Fallback failed
-    }
-    return null;
-  }
-
-  /// Normalize pinyin: remove tone numbers/marks and convert to uppercase
   String _normalizePinyin(String pinyin) {
     const toneMap = {
       'ā': 'a', 'á': 'a', 'ǎ': 'a', 'à': 'a',
@@ -909,13 +818,12 @@ class DictionaryService {
           final char = match.group(0)!.toLowerCase();
           return toneMap[char] ?? char;
         })
-        .replaceAll(RegExp(r'[^a-zA-Z]'), '') // Remove everything except letters
+        .replaceAll(RegExp(r'[^a-zA-Z]'), '')
         .toUpperCase();
 
     return normalized;
   }
 
-  /// Create a ChineseWord from characters with pinyin lookup
   Future<ChineseWord?> createWord(String characters) async {
     if (characters.length < 2 || characters.length > 8) return null;
 
@@ -927,7 +835,6 @@ class DictionaryService {
     return ChineseWord(characters, pinyinList);
   }
 
-  /// Get candidate characters for a given pinyin from the game word list
   Set<String> getCandidatesForPinyin(String pinyin) {
     final candidates = <String>{};
     final upperPinyin = pinyin.toUpperCase();
@@ -943,19 +850,15 @@ class DictionaryService {
     return candidates;
   }
 
-  /// Get available word lengths
   List<int> getAvailableWordLengths() {
     return [2, 4];
   }
 
-  /// Fetch a random Chinese word from proxy API
   Future<ChineseWord?> fetchRandomWord({int length = 2}) async {
     if (!hasProxy) {
-      // Fallback to hardcoded list if no proxy configured
       return getRandomWord(length: length);
     }
 
-    // Build exclusion list from recently used words
     final recentWords = _usedWords.take(20).toList();
 
     try {
@@ -974,10 +877,8 @@ class DictionaryService {
         final data = json.decode(response.body);
         final content = data['word'] as String?;
         if (content != null) {
-          // Clean up the response - only keep Chinese characters
           final chineseOnly = content.replaceAll(RegExp(r'[^\u4e00-\u9fff]'), '');
           if (chineseOnly.length == length && !_usedWords.contains(chineseOnly)) {
-            // Verify and get pinyin
             final word = await createWord(chineseOnly);
             if (word != null) {
               _usedWords.add(chineseOnly);
@@ -993,20 +894,15 @@ class DictionaryService {
     return getRandomWord(length: length);
   }
 
-  // Cache for all hints for a word
   final Map<String, List<String>> _hintsCache = {};
 
-  /// Calculate total pinyin letter count for a word
   int getPinyinLetterCount(List<String> pinyinList) {
     return pinyinList.fold(0, (sum, pinyin) => sum + pinyin.length);
   }
 
-  /// Get all progressive hints for a word at once
-  /// Returns a list of 3 hints from vague to specific
   Future<List<String>?> getAllHints(String characters, {bool isIdiom = false}) async {
     if (!hasProxy) return null;
 
-    // Check cache first
     if (_hintsCache.containsKey(characters)) {
       return _hintsCache[characters];
     }
@@ -1038,7 +934,6 @@ class DictionaryService {
     return null;
   }
 
-  /// Get a specific hint level (for backward compatibility)
   Future<String?> getWordHint(String characters, {int level = 1, bool isIdiom = false}) async {
     final allHints = await getAllHints(characters, isIdiom: isIdiom);
     if (allHints != null && level >= 1 && level <= allHints.length) {
@@ -1047,9 +942,7 @@ class DictionaryService {
     return null;
   }
 
-  /// Verify if a word is valid Chinese
   Future<bool> verifyWord(String characters) async {
-    // First check if we can get pinyin for it
     final pinyin = await lookupPinyin(characters);
     return pinyin != null && pinyin.length == characters.length;
   }
